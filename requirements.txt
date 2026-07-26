@@ -2,5 +2,3 @@ streamlit
 pandas
 numpy
 plotly
-nfl_data_py
- 
