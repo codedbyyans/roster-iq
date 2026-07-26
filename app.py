@@ -5,17 +5,16 @@ Single-file Streamlit application.
 
 Modules:
     1. Draft Room (Value-Based Drafting)
-    2. Weekly Start/Sit — Monte Carlo Matchup Engine
+    2. Weekly Start/Sit Helper — simplified Monte Carlo matchup comparison
     3. Trade Evaluator
     4. Waiver Wire & Injuries
     5. Deep Player Stats
-    6. League Standings & Playoff Odds
 
-The app tries to pull real player data via `nfl_data_py`. If that
-package / network call is unavailable (e.g. offline dev, blocked
-egress, or a season with no data yet), RosterIQ falls back to a
-realistic synthetic dataset so every tab keeps working and the user
-always sees a clean message instead of a crash.
+Player data is built from a curated list of real, current NFL players
+(see `_QB_ROSTER` / `_RB_ROSTER` / `_WR_ROSTER` / `_TE_ROSTER` below).
+Projections are modeled deterministically from each player's rank within
+their position, so names are always real even without a live feed —
+update those lists any time to refresh who's included.
 """
 
 import math
@@ -249,43 +248,97 @@ LEAGUE_SIZE_OPTIONS = [8, 10, 12, 14, 16]
 SCORING_OPTIONS = ["PPR", "Half-PPR", "Standard"]
 CURRENT_SEASON = 2025
 TOTAL_WEEKS = 17
-
-NFL_TEAMS = [
-    "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", "DAL", "DEN",
-    "DET", "GB", "HOU", "IND", "JAX", "KC", "LAC", "LAR", "LV", "MIA",
-    "MIN", "NE", "NO", "NYG", "NYJ", "PHI", "PIT", "SEA", "SF", "TB",
-    "TEN", "WAS",
-]
-
-FIRST_NAMES = [
-    "James", "Michael", "Chris", "Josh", "Trevor", "Jordan", "Marcus", "DeAndre",
-    "Tyler", "Justin", "Aaron", "Derrick", "Jalen", "Cooper", "Devon", "Tee",
-    "Amari", "CeeDee", "Nico", "Puka", "Garrett", "Sam", "Brock", "Bijan",
-    "Kenneth", "Rhamondre", "Javonte", "Isiah", "George", "Travis", "Mark",
-    "Dallas", "Kyle", "Zay", "DK", "Terry", "Chris", "Drake", "Rachaad", "Joe",
-]
-LAST_NAMES = [
-    "Johnson", "Williams", "Brown", "Jones", "Davis", "Miller", "Wilson", "Moore",
-    "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris", "Martin", "Clark",
-    "Lewis", "Young", "Allen", "King", "Wright", "Scott", "Hill", "Adams",
-    "Baker", "Nelson", "Carter", "Mitchell", "Perez", "Roberts", "Turner", "Phillips",
-]
-
 RNG_SEED = 42
 
 # ----------------------------------------------------------------------------
-# DATA LAYER
+# DATA LAYER — curated real-player roster
 # ----------------------------------------------------------------------------
+# Real NFL players, listed roughly best-to-worst within each position so the
+# talent curve below produces sensible tiers/ADP. Swap this list any time to
+# refresh who's included — every name here is a real, current NFL player.
+_QB_ROSTER = [
+    ("Patrick Mahomes", "KC"), ("Josh Allen", "BUF"), ("Lamar Jackson", "BAL"),
+    ("Joe Burrow", "CIN"), ("Jalen Hurts", "PHI"), ("Justin Herbert", "LAC"),
+    ("Jordan Love", "GB"), ("C.J. Stroud", "HOU"), ("Jayden Daniels", "WAS"),
+    ("Dak Prescott", "DAL"), ("Brock Purdy", "SF"), ("Kyler Murray", "ARI"),
+    ("Caleb Williams", "CHI"), ("Trevor Lawrence", "JAX"), ("Tua Tagovailoa", "MIA"),
+    ("Drake Maye", "NE"), ("Bo Nix", "DEN"), ("Baker Mayfield", "TB"),
+    ("Matthew Stafford", "LAR"), ("Geno Smith", "SEA"), ("Jared Goff", "DET"),
+    ("Kirk Cousins", "ATL"), ("Sam Darnold", "SEA"), ("Anthony Richardson", "IND"),
+    ("Bryce Young", "CAR"), ("Aaron Rodgers", "PIT"), ("Russell Wilson", "NYG"),
+    ("Will Levis", "TEN"), ("Michael Penix Jr.", "ATL"), ("J.J. McCarthy", "MIN"),
+    ("Derek Carr", "NO"), ("Justin Fields", "NYJ"),
+]
+
+_RB_ROSTER = [
+    ("Christian McCaffrey", "SF"), ("Bijan Robinson", "ATL"), ("Breece Hall", "NYJ"),
+    ("Jonathan Taylor", "IND"), ("Saquon Barkley", "PHI"), ("Derrick Henry", "BAL"),
+    ("Josh Jacobs", "GB"), ("Kenneth Walker III", "SEA"), ("De'Von Achane", "MIA"),
+    ("Jahmyr Gibbs", "DET"), ("Travis Etienne", "JAX"), ("Isiah Pacheco", "KC"),
+    ("James Cook", "BUF"), ("Rachaad White", "TB"), ("Kyren Williams", "LAR"),
+    ("Alvin Kamara", "NO"), ("Aaron Jones", "MIN"), ("Joe Mixon", "HOU"),
+    ("Chuba Hubbard", "CAR"), ("Tony Pollard", "TEN"), ("David Montgomery", "DET"),
+    ("Javonte Williams", "DAL"), ("Rhamondre Stevenson", "NE"), ("Najee Harris", "PIT"),
+    ("Zack Moss", "CIN"), ("Brian Robinson Jr.", "WAS"), ("Jaylen Warren", "PIT"),
+    ("Zamir White", "LV"), ("D'Andre Swift", "CHI"), ("Austin Ekeler", "WAS"),
+    ("Ezekiel Elliott", "DAL"), ("J.K. Dobbins", "LAC"), ("Devin Singletary", "NYG"),
+    ("Gus Edwards", "LAC"), ("Jerome Ford", "CLE"), ("Dameon Pierce", "HOU"),
+    ("Antonio Gibson", "NE"), ("Tyler Allgeier", "ATL"), ("Ty Chandler", "MIN"),
+    ("Jaleel McLaughlin", "DEN"), ("Samaje Perine", "KC"), ("Khalil Herbert", "CHI"),
+    ("Justice Hill", "BAL"), ("Alexander Mattison", "LV"), ("Roschon Johnson", "CHI"),
+    ("Craig Reynolds", "DET"), ("Miles Sanders", "DAL"), ("Cam Akers", "MIN"),
+]
+
+_WR_ROSTER = [
+    ("Justin Jefferson", "MIN"), ("Ja'Marr Chase", "CIN"), ("Tyreek Hill", "MIA"),
+    ("CeeDee Lamb", "DAL"), ("Amon-Ra St. Brown", "DET"), ("A.J. Brown", "PHI"),
+    ("Puka Nacua", "LAR"), ("Garrett Wilson", "NYJ"), ("Stefon Diggs", "HOU"),
+    ("Davante Adams", "LAR"), ("Mike Evans", "TB"), ("DK Metcalf", "PIT"),
+    ("DeVonta Smith", "PHI"), ("Chris Olave", "NO"), ("Amari Cooper", "BUF"),
+    ("Cooper Kupp", "SEA"), ("Nico Collins", "HOU"), ("Terry McLaurin", "WAS"),
+    ("Brandon Aiyuk", "SF"), ("Calvin Ridley", "TEN"), ("Jaylen Waddle", "MIA"),
+    ("Deebo Samuel", "WAS"), ("Tee Higgins", "CIN"), ("Marvin Harrison Jr.", "ARI"),
+    ("Malik Nabers", "NYG"), ("Rome Odunze", "CHI"), ("Drake London", "ATL"),
+    ("Jordan Addison", "MIN"), ("Zay Flowers", "BAL"), ("Christian Watson", "GB"),
+    ("Jameson Williams", "DET"), ("Chris Godwin", "TB"), ("Michael Pittman Jr.", "IND"),
+    ("Courtland Sutton", "DEN"), ("Diontae Johnson", "BAL"), ("George Pickens", "DAL"),
+    ("Jerry Jeudy", "CLE"), ("Keenan Allen", "LAC"), ("Adam Thielen", "CAR"),
+    ("Curtis Samuel", "BUF"), ("Rashee Rice", "KC"), ("Xavier Worthy", "KC"),
+    ("Jaxon Smith-Njigba", "SEA"), ("Tank Dell", "HOU"), ("Josh Downs", "IND"),
+    ("Jayden Reed", "GB"), ("Christian Kirk", "JAX"), ("Gabe Davis", "JAX"),
+    ("Darnell Mooney", "ATL"), ("Elijah Moore", "CLE"), ("Romeo Doubs", "GB"),
+    ("Wan'Dale Robinson", "NYG"), ("Jahan Dotson", "PHI"), ("Tutu Atwell", "LAR"),
+    ("Rashid Shaheed", "NO"), ("Khalil Shakir", "BUF"), ("Demario Douglas", "NE"),
+    ("Jonathan Mingo", "CAR"), ("Quentin Johnston", "LAC"), ("Skyy Moore", "KC"),
+    ("Marquise Brown", "KC"), ("Tyler Lockett", "SEA"), ("Allen Lazard", "NYJ"),
+    ("Noah Brown", "WAS"), ("Kendrick Bourne", "NE"), ("Rashod Bateman", "BAL"),
+]
+
+_TE_ROSTER = [
+    ("Travis Kelce", "KC"), ("Sam LaPorta", "DET"), ("Brock Bowers", "LV"),
+    ("Mark Andrews", "BAL"), ("Trey McBride", "ARI"), ("George Kittle", "SF"),
+    ("T.J. Hockenson", "MIN"), ("Kyle Pitts", "ATL"), ("Dallas Goedert", "PHI"),
+    ("Evan Engram", "JAX"), ("David Njoku", "CLE"), ("Jake Ferguson", "DAL"),
+    ("Dalton Kincaid", "BUF"), ("Cole Kmet", "CHI"), ("Pat Freiermuth", "PIT"),
+    ("Tyler Higbee", "LAR"), ("Hunter Henry", "NE"), ("Noah Fant", "CIN"),
+    ("Gerald Everett", "CHI"), ("Chigoziem Okonkwo", "TEN"), ("Isaiah Likely", "BAL"),
+    ("Zach Ertz", "WAS"), ("Luke Musgrave", "GB"), ("Michael Mayer", "LV"),
+    ("Cade Otton", "TB"), ("Juwan Johnson", "NO"), ("Durham Smythe", "MIA"),
+    ("Tucker Kraft", "GB"), ("Ben Sinnott", "WAS"), ("Theo Johnson", "NYG"),
+]
+
+_ROSTERS_BY_POS = {"QB": _QB_ROSTER, "RB": _RB_ROSTER, "WR": _WR_ROSTER, "TE": _TE_ROSTER}
+
+
 @st.cache_data(show_spinner=False)
-def _generate_synthetic_dataset(seed: int = RNG_SEED) -> pd.DataFrame:
-    """Builds a realistic-shaped synthetic player pool so the app always has
-    data to work with, regardless of live data availability."""
+def _build_player_dataset(seed: int = RNG_SEED) -> pd.DataFrame:
+    """Builds the player pool from a curated list of real, current NFL
+    players. Stats/projections are modeled deterministically based on each
+    player's rank within their position, so the app always shows real names
+    even without a live data feed."""
     rng = np.random.default_rng(seed)
     rows = []
-    name_pool = set()
 
-    pos_counts = {"QB": 34, "RB": 65, "WR": 90, "TE": 34}
-    # base scoring profiles per position (weekly mean/std in PPR terms)
     pos_profile = {
         "QB": dict(mean=(12, 24), std=(4, 7)),
         "RB": dict(mean=(3, 20), std=(3, 8)),
@@ -294,39 +347,34 @@ def _generate_synthetic_dataset(seed: int = RNG_SEED) -> pd.DataFrame:
     }
 
     player_id = 1000
-    for pos, count in pos_counts.items():
-        # generate a descending "talent curve" so tiers emerge naturally
-        talent = np.sort(rng.beta(2.0, 3.2, size=count))[::-1]
+    for pos, roster in _ROSTERS_BY_POS.items():
+        count = len(roster)
         lo_m, hi_m = pos_profile[pos]["mean"]
         lo_s, hi_s = pos_profile[pos]["std"]
-        for i in range(count):
-            while True:
-                nm = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
-                if nm not in name_pool:
-                    name_pool.add(nm)
-                    break
-            t = talent[i]
-            mean_pts = lo_m + t * (hi_m - lo_m) + rng.normal(0, 0.6)
-            mean_pts = max(mean_pts, 0.5)
-            std_pts = lo_s + (1 - t) * 0.4 * (hi_s - lo_s) + rng.normal(0, 0.4)
-            std_pts = max(std_pts, 1.0)
+        for i, (name, team) in enumerate(roster):
+            # talent decreases smoothly from 1.0 (best) to ~0.05 (last) by list position
+            t = max(1.0 - (i / max(count - 1, 1)) * 0.95, 0.05)
+            t = float(np.clip(t + rng.normal(0, 0.02), 0.02, 1.0))
 
-            target_share = np.clip(rng.normal(0.06 + t * 0.24, 0.03), 0, 0.4) if pos in ("WR", "TE", "RB") else 0.0
-            snap_pct = np.clip(rng.normal(0.35 + t * 0.55, 0.08), 0.05, 0.98)
+            mean_pts = max(lo_m + t * (hi_m - lo_m) + rng.normal(0, 0.4), 0.5)
+            std_pts = max(lo_s + (1 - t) * 0.4 * (hi_s - lo_s) + rng.normal(0, 0.3), 1.0)
+
+            target_share = np.clip(rng.normal(0.06 + t * 0.24, 0.02), 0, 0.4) if pos in ("WR", "TE", "RB") else 0.0
+            snap_pct = np.clip(rng.normal(0.35 + t * 0.55, 0.06), 0.05, 0.98)
             redzone_touches = max(0, rng.poisson(1 + t * 4))
-            air_yards = max(0, rng.normal(300 + t * 900, 150)) if pos in ("WR", "TE") else max(0, rng.normal(20 + t * 60, 20))
-            adp = round(1 + (1 - t) * 220 + rng.normal(0, 4), 1)
+            air_yards = max(0, rng.normal(300 + t * 900, 120)) if pos in ("WR", "TE") else max(0, rng.normal(20 + t * 60, 15))
+            adp = round(i + 1 + rng.normal(0, 1.5), 1)
             bye = int(rng.integers(5, 14))
             injury_status = rng.choice(
-                ["Healthy", "Healthy", "Healthy", "Healthy", "Questionable", "Doubtful", "Out", "IR"],
-                p=[0.55, 0.15, 0.1, 0.05, 0.08, 0.03, 0.03, 0.01],
+                ["Healthy", "Healthy", "Healthy", "Healthy", "Questionable", "Doubtful", "Out"],
+                p=[0.60, 0.15, 0.1, 0.05, 0.06, 0.02, 0.02],
             )
 
             rows.append(dict(
                 player_id=player_id,
-                player_name=nm,
+                player_name=name,
                 position=pos,
-                team=rng.choice(NFL_TEAMS),
+                team=team,
                 proj_mean=round(float(mean_pts), 2),
                 proj_std=round(float(std_pts), 2),
                 target_share=round(float(target_share), 3),
@@ -336,7 +384,7 @@ def _generate_synthetic_dataset(seed: int = RNG_SEED) -> pd.DataFrame:
                 adp=adp,
                 bye_week=bye,
                 injury_status=injury_status,
-                talent=round(float(t), 4),
+                talent=round(t, 4),
             ))
             player_id += 1
 
@@ -346,61 +394,18 @@ def _generate_synthetic_dataset(seed: int = RNG_SEED) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_player_data():
-    """Attempts to load live player data via nfl_data_py. Falls back to a
-    synthetic dataset (with a clear on-screen notice) if unavailable.
+    """Loads the RosterIQ player pool from the curated real-player roster.
 
     Returns:
-        (DataFrame, str source_label, str|None warning_message)
+        (DataFrame, str source_label, str|None info_message)
     """
     try:
-        import nfl_data_py as nfl  # noqa: F401
-
-        seasonal = nfl.import_seasonal_data([CURRENT_SEASON - 1])
-        rosters = nfl.import_seasonal_rosters([CURRENT_SEASON - 1])
-
-        merged = seasonal.merge(
-            rosters[["player_id", "player_name", "position", "team"]],
-            on="player_id",
-            how="left",
-        )
-        merged = merged[merged["position"].isin(POSITIONS)].copy()
-        if merged.empty:
-            raise ValueError("nfl_data_py returned no usable rows for current positions.")
-
-        games = merged["games"].replace(0, np.nan)
-        merged["proj_mean"] = (merged.get("fantasy_points_ppr", merged.get("fantasy_points", 0)) / games).fillna(0)
-        merged["proj_std"] = (merged["proj_mean"] * 0.35).clip(lower=1.0)
-        merged["target_share"] = merged.get("tgt_sh", 0).fillna(0)
-        merged["snap_pct"] = merged.get("offense_pct", 0).fillna(0)
-        merged["redzone_touches"] = merged.get("rz_tgt", merged.get("rz_carries", 0)).fillna(0)
-        merged["air_yards"] = merged.get("air_yards", 0).fillna(0)
-        merged["adp"] = merged["proj_mean"].rank(ascending=False, method="first")
-        merged["bye_week"] = np.random.default_rng(RNG_SEED).integers(5, 14, size=len(merged))
-        merged["injury_status"] = "Healthy"
-        merged["player_id"] = merged["player_id"]
-
-        keep_cols = [
-            "player_id", "player_name", "position", "team", "proj_mean", "proj_std",
-            "target_share", "snap_pct", "redzone_touches", "air_yards", "adp",
-            "bye_week", "injury_status",
-        ]
-        out = merged[keep_cols].dropna(subset=["player_name"]).reset_index(drop=True)
-        out["talent"] = (out["proj_mean"] - out["proj_mean"].min()) / (
-            out["proj_mean"].max() - out["proj_mean"].min() + 1e-9
-        )
-        if len(out) < 40:
-            raise ValueError("Live dataset too small after filtering — using synthetic fallback.")
-        return out, "live (nfl_data_py)", None
-
-    except Exception as exc:  # noqa: BLE001 — intentionally broad: any failure -> graceful fallback
-        synthetic = _generate_synthetic_dataset()
-        warning = (
-            "Live NFL data could not be loaded right now "
-            f"({type(exc).__name__}: {exc}). RosterIQ is running on a realistic "
-            "synthetic dataset so every tool below still works — swap in your own "
-            "feed any time via `load_player_data()`."
-        )
-        return synthetic, "synthetic (fallback)", warning
+        df = _build_player_dataset()
+        if df is None or df.empty:
+            raise ValueError("Player dataset came back empty.")
+        return df, "curated real-player roster", None
+    except Exception as exc:  # noqa: BLE001 — surface a clean message instead of crashing
+        return pd.DataFrame(), "unavailable", f"Could not build the player dataset ({type(exc).__name__}: {exc})."
 
 
 # ----------------------------------------------------------------------------
@@ -576,7 +581,7 @@ st.markdown(
         <p class="rq-banner-title">Roster<span>IQ</span> 🏈</p>
         <p class="rq-banner-sub">
             {league_size}-team &middot; {scoring_system} &middot; Draft, start/sit, trades, waivers,
-            deep stats &amp; standings — all powered by probabilistic modeling.
+            and deep player stats — made simple.
         </p>
     </div>
     """,
@@ -586,13 +591,12 @@ st.markdown(
 # ----------------------------------------------------------------------------
 # TABS
 # ----------------------------------------------------------------------------
-tab_draft, tab_sim, tab_trade, tab_waiver, tab_stats, tab_standings = st.tabs([
+tab_draft, tab_sim, tab_trade, tab_waiver, tab_stats = st.tabs([
     "🎯 Draft Room",
-    "🎲 Start/Sit — Monte Carlo",
+    "🎲 Start/Sit Helper",
     "🔁 Trade Evaluator",
     "📈 Waiver Wire & Injuries",
     "📊 Deep Player Stats",
-    "🏆 Standings & Playoff Odds",
 ])
 
 # =============================================================================
@@ -680,8 +684,8 @@ with tab_draft:
 # TAB 2 — WEEKLY START/SIT MONTE CARLO
 # =============================================================================
 with tab_sim:
-    st.markdown("#### Monte Carlo Matchup Engine")
-    st.caption("Simulate two players head-to-head using mean scoring, volatility, opponent defense, and weather.")
+    st.markdown("#### Who Should I Start?")
+    st.caption("Pick two players and RosterIQ runs 1,000 simulated games to tell you who's the safer or higher-upside start.")
 
     all_names = df.sort_values("player_name")["player_name"].tolist()
     if len(all_names) < 2:
@@ -689,50 +693,54 @@ with tab_sim:
     else:
         c1, c2 = st.columns(2)
         with c1:
-            player_a_name = st.selectbox("Player A", all_names, index=0, key="sim_a")
+            player_a_name = st.selectbox("Player 1", all_names, index=0, key="sim_a")
         with c2:
             default_b_idx = 1 if len(all_names) > 1 else 0
-            player_b_name = st.selectbox("Player B", all_names, index=default_b_idx, key="sim_b")
+            player_b_name = st.selectbox("Player 2", all_names, index=default_b_idx, key="sim_b")
 
-        iterations = st.slider("Monte Carlo Iterations", min_value=500, max_value=1000, value=1000, step=100)
-
-        adv1, adv2, adv3 = st.columns(3)
-        with adv1:
-            opp_def_a = st.slider("Player A — Opponent Defense Factor", 0.7, 1.3, 1.0, 0.01,
-                                   help="< 1.0 = tougher matchup, > 1.0 = softer matchup")
-        with adv2:
-            opp_def_b = st.slider("Player B — Opponent Defense Factor", 0.7, 1.3, 1.0, 0.01)
-        with adv3:
-            weather_a = st.slider("Weather Impact (A)", 0.8, 1.0, 1.0, 0.01)
-        weather_b = st.slider("Weather Impact (B)", 0.8, 1.0, 1.0, 0.01)
+        with st.expander("Advanced options (optional)"):
+            st.caption("Only touch these if you know something about this week's matchup, like a tough defense or bad weather.")
+            adv1, adv2 = st.columns(2)
+            with adv1:
+                matchup_a = st.select_slider(
+                    f"{player_a_name}'s matchup this week", options=["Much Tougher", "Tougher", "Normal", "Easier", "Much Easier"],
+                    value="Normal", key="matchup_a",
+                )
+            with adv2:
+                matchup_b = st.select_slider(
+                    f"{player_b_name}'s matchup this week", options=["Much Tougher", "Tougher", "Normal", "Easier", "Much Easier"],
+                    value="Normal", key="matchup_b",
+                )
+            matchup_map = {"Much Tougher": 0.85, "Tougher": 0.93, "Normal": 1.0, "Easier": 1.07, "Much Easier": 1.15}
+            opp_def_a, opp_def_b = matchup_map[matchup_a], matchup_map[matchup_b]
 
         row_a = df[df["player_name"] == player_a_name].iloc[0]
         row_b = df[df["player_name"] == player_b_name].iloc[0]
 
-        if st.button("▶️ Run Simulation", type="primary"):
+        if st.button("▶️ Compare Players", type="primary"):
             result = run_matchup_sim(
                 row_a["proj_mean_scored"], row_a["proj_std_scored"],
                 row_b["proj_mean_scored"], row_b["proj_std_scored"],
-                opp_def_a, opp_def_b, weather_a, weather_b,
-                iterations=iterations,
+                opp_def_a, opp_def_b, 1.0, 1.0,
+                iterations=1000,
             )
 
             recommended = player_a_name if result["win_prob_a"] >= result["win_prob_b"] else player_b_name
-            st.success(f"⭐ **Start Recommendation: {recommended}**")
+            st.success(f"⭐ **Start {recommended}**")
+            st.caption(
+                f"Based on 1,000 simulated games, {recommended} came out ahead more often. "
+                "This is a data-informed suggestion, not a guarantee — always factor in injuries and team news too."
+            )
 
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2 = st.columns(2)
             with m1:
-                st.markdown(f"""<div class="rq-badge"><div class="label">{player_a_name} Win Prob</div>
-                <div class="value">{result['win_prob_a']*100:.1f}%</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="rq-badge"><div class="label">{player_a_name} — Chance of the Better Game</div>
+                <div class="value">{result['win_prob_a']*100:.0f}%</div></div>""", unsafe_allow_html=True)
+                st.caption(f"Big game chance: {result['boom_prob_a']*100:.0f}% &nbsp;•&nbsp; Rough game chance: {result['bust_prob_a']*100:.0f}%")
             with m2:
-                st.markdown(f"""<div class="rq-badge orange"><div class="label">{player_b_name} Win Prob</div>
-                <div class="value">{result['win_prob_b']*100:.1f}%</div></div>""", unsafe_allow_html=True)
-            with m3:
-                st.markdown(f"""<div class="rq-badge"><div class="label">{player_a_name} Boom / Bust</div>
-                <div class="value">{result['boom_prob_a']*100:.0f}% / {result['bust_prob_a']*100:.0f}%</div></div>""", unsafe_allow_html=True)
-            with m4:
-                st.markdown(f"""<div class="rq-badge orange"><div class="label">{player_b_name} Boom / Bust</div>
-                <div class="value">{result['boom_prob_b']*100:.0f}% / {result['bust_prob_b']*100:.0f}%</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="rq-badge orange"><div class="label">{player_b_name} — Chance of the Better Game</div>
+                <div class="value">{result['win_prob_b']*100:.0f}%</div></div>""", unsafe_allow_html=True)
+                st.caption(f"Big game chance: {result['boom_prob_b']*100:.0f}% &nbsp;•&nbsp; Rough game chance: {result['bust_prob_b']*100:.0f}%")
 
             fig = go.Figure()
             fig.add_trace(go.Histogram(x=result["sims_a"], name=player_a_name, opacity=0.65,
@@ -744,9 +752,9 @@ with tab_sim:
                 template="plotly_dark",
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                title="Simulated Fantasy Point Distributions",
+                title="Range of Likely Fantasy Scores",
                 xaxis_title="Fantasy Points",
-                yaxis_title="Frequency",
+                yaxis_title="How Often (out of 1,000 simulations)",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -924,109 +932,6 @@ with tab_stats:
             xaxis_title="Simulated Fantasy Points", yaxis_title="Frequency",
         )
         st.plotly_chart(fig2, use_container_width=True)
-
-# =============================================================================
-# TAB 6 — LEAGUE STANDINGS & PLAYOFF ODDS
-# =============================================================================
-with tab_standings:
-    st.markdown("#### League Standings & Playoff Odds")
-    st.caption(
-        "Synthetic league schedule generator: builds fictional team power ratings, computes "
-        "all-play records, and simulates the rest of the season to estimate playoff odds."
-    )
-
-    if "team_power" not in st.session_state or st.session_state.get("standings_league_size") != league_size:
-        rng = np.random.default_rng(RNG_SEED)
-        st.session_state.team_power = {
-            f"Team {i+1}": float(rng.normal(100, 12)) for i in range(league_size)
-        }
-        st.session_state.standings_league_size = league_size
-
-    team_power = st.session_state.team_power
-    current_week_s = st.slider("Weeks Completed", 1, TOTAL_WEEKS - 1, 6, key="standings_week")
-    playoff_spots = st.slider("Number of Playoff Spots", 2, max(league_size // 2, 2), min(4, league_size // 2))
-
-    rng = np.random.default_rng(RNG_SEED + current_week_s)
-    team_names = list(team_power.keys())
-    records = {t: {"wins": 0, "losses": 0, "all_play_wins": 0, "all_play_games": 0, "pf": 0.0} for t in team_names}
-
-    # simulate completed weeks
-    for wk in range(current_week_s):
-        week_scores = {t: max(rng.normal(team_power[t], 14), 0) for t in team_names}
-        shuffled = team_names[:]
-        rng.shuffle(shuffled)
-        pairs = list(zip(shuffled[::2], shuffled[1::2]))
-        for a, b in pairs:
-            records[a]["pf"] += week_scores[a]
-            records[b]["pf"] += week_scores[b]
-            if week_scores[a] > week_scores[b]:
-                records[a]["wins"] += 1
-                records[b]["losses"] += 1
-            else:
-                records[b]["wins"] += 1
-                records[a]["losses"] += 1
-        # all-play: compare each team's score to every other team's score that week
-        for t in team_names:
-            others = [week_scores[o] for o in team_names if o != t]
-            records[t]["all_play_wins"] += sum(1 for o in others if week_scores[t] > o)
-            records[t]["all_play_games"] += len(others)
-
-    standings_df = pd.DataFrame([
-        dict(
-            Team=t,
-            Wins=records[t]["wins"],
-            Losses=records[t]["losses"],
-            PF=round(records[t]["pf"], 1),
-            AllPlayWinPct=round(records[t]["all_play_wins"] / max(records[t]["all_play_games"], 1), 3),
-        )
-        for t in team_names
-    ]).sort_values(["Wins", "PF"], ascending=False).reset_index(drop=True)
-    standings_df.index = standings_df.index + 1
-
-    st.markdown("##### Current Standings")
-    st.dataframe(standings_df, use_container_width=True, height=380)
-
-    st.markdown("<div class='rq-divider'></div>", unsafe_allow_html=True)
-    st.markdown("##### Playoff Odds (Monte Carlo — remaining schedule)")
-
-    n_sims = st.slider("Season Simulations", 200, 2000, 800, step=100)
-    remaining = TOTAL_WEEKS - current_week_s
-    playoff_hits = {t: 0 for t in team_names}
-
-    for _ in range(n_sims):
-        sim_wins = {t: records[t]["wins"] for t in team_names}
-        sim_pf = {t: records[t]["pf"] for t in team_names}
-        for wk in range(remaining):
-            week_scores = {t: max(rng.normal(team_power[t], 14), 0) for t in team_names}
-            shuffled = team_names[:]
-            rng.shuffle(shuffled)
-            pairs = list(zip(shuffled[::2], shuffled[1::2]))
-            for a, b in pairs:
-                sim_pf[a] += week_scores[a]
-                sim_pf[b] += week_scores[b]
-                if week_scores[a] > week_scores[b]:
-                    sim_wins[a] += 1
-                else:
-                    sim_wins[b] += 1
-        ranked = sorted(team_names, key=lambda t: (sim_wins[t], sim_pf[t]), reverse=True)
-        for t in ranked[:playoff_spots]:
-            playoff_hits[t] += 1
-
-    odds_df = pd.DataFrame([
-        dict(Team=t, PlayoffOdds=round(100 * playoff_hits[t] / n_sims, 1))
-        for t in team_names
-    ]).sort_values("PlayoffOdds", ascending=False).reset_index(drop=True)
-
-    fig3 = px.bar(
-        odds_df, x="Team", y="PlayoffOdds", color="PlayoffOdds",
-        color_continuous_scale=["#223041", "#00e6a0"],
-        template="plotly_dark",
-    )
-    fig3.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        yaxis_title="Playoff Odds (%)", xaxis_title="",
-    )
-    st.plotly_chart(fig3, use_container_width=True)
 
 # ----------------------------------------------------------------------------
 # FOOTER — VISITOR COUNTER
